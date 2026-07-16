@@ -96,6 +96,66 @@ degradam com código explícito `plugin_failure` — nunca um bloqueio silencios
 5. **Config via `Runtime.Config` → env → default; secrets nunca em log nem
    hardcode.**
 
+## Testando o seu plugin — o que roda onde
+
+Seja honesto com o seu pipeline: parte dos testes roda na sua máquina, parte
+exige um ambiente da plataforma. O mapa completo:
+
+| Etapa | Onde roda | Como |
+|-------|-----------|------|
+| **Unidade** — cada handler, config, idempotência | Sua máquina | `go test ./...` (padrões em [`plugin_test.go`](plugin_test.go)) |
+| **Contrato go-plugin** — o binário fala o protocolo | Sua máquina | `go build -o bin/... ./cmd/... && ./bin/... --commerce-ext-handshake` → `commerce-ext-ok` |
+| **Manifest** — capacidades declaradas = registradas | Sua máquina | teste `TestRegisterDeclaresManifestCapabilities` |
+| **Integração com o host real** — cadeia de prioridades, timeout de 300ms, semântica do `quote_adjust`, eventos via outbox | Ambiente Mirá (dev) | O plugin é carregado num deploy de desenvolvimento via `MIRA_MANIFEST_PATH`; devs internos rodam `make dev-api` no core |
+| **Aceite de negócio** — efeito num checkout de verdade | Staging Mirá | Pedido de teste num tenant de staging; valida desconto/bloqueio/pontos fim a fim |
+
+Regra prática: **antes de pedir um slot em staging, unidade + handshake +
+manifest têm que estar verdes** — são as três coisas que você consegue provar
+sozinho.
+
+> Roadmap: um pacote `plugintest` no SDK (mini-host em memória com as mesmas
+> semânticas de cadeia) para você rodar a etapa de integração localmente,
+> sem depender de ambiente Mirá.
+
+## Colocando em produção
+
+### Fluxo A — dev interno (in-process, o padrão hoje)
+
+1. Desenvolva aqui no template (loop rápido, sem depender do monorepo).
+2. Quando estável, copie o pacote para `extensions/<id>` no core e registre no
+   loader do Extension Host (plugins que mudam dinheiro ficam atrás de flag,
+   como o `MIRA_EXAMPLE_PLUGIN=1` deste exemplo).
+3. Abra PR no core com o checklist: manifest ↔ `Register` em paridade, teste de
+   integração pelo host, timeout/idempotência documentados, persistência em
+   schema `ext_<plugin>`, linha na tabela de extensões da doc.
+4. Merge → deploy pelo workflow da API → confirme no log:
+   `ext: plugins loaded [... <seu-id>]`.
+5. **Rollback**: desligar a flag (ou remover do loader) + redeploy. Por isso
+   todo plugin novo nasce atrás de flag.
+
+### Fluxo B — parceiro (go-plugin externo, desenhado para o futuro)
+
+1. Parceiro desenvolve num fork deste template e entrega **código-fonte
+   versionado (repo + tag)** + `manifest.yaml` — não um binário opaco: a Mirá
+   **audita e builda a partir do fonte**. Binário de terceiro sem auditoria não
+   roda junto do core, nunca.
+2. Validação Mirá: revisão de código, `VerifyPluginManifest`, carga num
+   ambiente dev (`MIRA_MANIFEST_PATH`) e cenários de aceite combinados.
+3. Staging com dados de teste do tenant do parceiro; aprovação de negócio.
+4. Produção: o manifest entra **pinado por versão** no deploy do tenant. O
+   `compatibleCore` (semver) protege contra upgrade de core incompatível.
+5. Operação: falha de plugin aparece no log do core com código explícito
+   (`plugin_failure` / `ext/rpc: hook ... failed`) — nunca silenciosa. **Kill
+   switch**: remover o manifest do deploy + restart; o core volta ao
+   comportamento baseline na hora.
+
+### Regras de versão
+
+- Versione o plugin com semver e mantenha `compatibleCore` fiel (`^0.2.0`
+  aceita toda a linha 0.2 do protocolo).
+- Mudou código de bloqueio, hook usado ou formato de config? **Major** — e
+  combine a migração antes do deploy.
+
 ## Atualizando a versão do SDK
 
 O diretório `vendor/` congela o `commerce-ext` para o build funcionar sem
