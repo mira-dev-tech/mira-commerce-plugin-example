@@ -1,0 +1,24 @@
+# Manifest do plugin — validado por commerce-ext (LoadPluginManifest +
+# VerifyPluginManifest). Declare TUDO que o plugin usa: hook/evento fora desta
+# lista falha a verificação.
+apiVersion: commerce.mira.dev/v1
+kind: Plugin
+
+id: example-loyalty
+version: 1.0.0
+compatibleCore: "^0.2.0"
+
+runtime:
+  # Neste template o plugin roda como binário externo (go-plugin/RPC).
+  # Para compilar dentro do core (in-process), copie o pacote para
+  # extensions/<id> no mira-commerce-core — ver README.
+  type: go-plugin
+  binary: bin/example-loyalty
+
+capabilities:
+  hooks:
+    - checkout.quote_adjust
+    - order.pre_confirm
+  events:
+    subscribe:
+      - order.confirmed
