@@ -36,6 +36,7 @@ go test ./...        # funciona direto — o SDK está vendorado, zero setup
 |---------|--------------------------|
 | [`plugin.go`](plugin.go) | O plugin inteiro: `Meta/Init/Register/Shutdown`, os 2 hooks, o handler de evento, config via `Runtime` → env → default. **Cada decisão está comentada no lugar onde acontece.** |
 | [`plugin_test.go`](plugin_test.go) | Testes unitários usando só a superfície do SDK — inclusive o teste que trava a paridade entre `Register` e o `manifest.yaml` |
+| [`integration_test.go`](integration_test.go) | Integração local com o mini-host `plugintest`: cadeia, timeout, at-least-once — sem precisar do core |
 | [`manifest.yaml`](manifest.yaml) | Como declarar capacidades (hooks/eventos) e compatibilidade de versão |
 | [`cmd/example-loyalty/main.go`](cmd/example-loyalty/main.go) | Como empacotar o plugin como **binário externo** (go-plugin/RPC) — são 3 linhas |
 | [`.github/workflows/ci.yml`](.github/workflows/ci.yml) | CI mínimo: vet + test + build + handshake |
@@ -106,16 +107,13 @@ exige um ambiente da plataforma. O mapa completo:
 | **Unidade** — cada handler, config, idempotência | Sua máquina | `go test ./...` (padrões em [`plugin_test.go`](plugin_test.go)) |
 | **Contrato go-plugin** — o binário fala o protocolo | Sua máquina | `go build -o bin/... ./cmd/... && ./bin/... --commerce-ext-handshake` → `commerce-ext-ok` |
 | **Manifest** — capacidades declaradas = registradas | Sua máquina | teste `TestRegisterDeclaresManifestCapabilities` |
-| **Integração com o host real** — cadeia de prioridades, timeout de 300ms, semântica do `quote_adjust`, eventos via outbox | Ambiente Mirá (dev) | O plugin é carregado num deploy de desenvolvimento via `MIRA_MANIFEST_PATH`; devs internos rodam `make dev-api` no core |
+| **Integração local** — cadeia de prioridades, timeout de 300ms, semântica do `quote_adjust`, at-least-once de eventos | Sua máquina | mini-host [`plugintest`](https://github.com/mira-dev-tech/commerce-ext/tree/main/plugintest) — ver [`integration_test.go`](integration_test.go) |
+| **Integração com o host real** — workflow, outbox durável, dados reais | Ambiente Mirá (dev) | O plugin é carregado num deploy de desenvolvimento via `MIRA_MANIFEST_PATH`; devs internos rodam `make dev-api` no core |
 | **Aceite de negócio** — efeito num checkout de verdade | Staging Mirá | Pedido de teste num tenant de staging; valida desconto/bloqueio/pontos fim a fim |
 
-Regra prática: **antes de pedir um slot em staging, unidade + handshake +
-manifest têm que estar verdes** — são as três coisas que você consegue provar
-sozinho.
-
-> Roadmap: um pacote `plugintest` no SDK (mini-host em memória com as mesmas
-> semânticas de cadeia) para você rodar a etapa de integração localmente,
-> sem depender de ambiente Mirá.
+Regra prática: **antes de pedir um slot em staging, unidade + integração
+local (`plugintest`) + handshake + manifest têm que estar verdes** — são as
+quatro coisas que você consegue provar sozinho.
 
 ## Colocando em produção
 
