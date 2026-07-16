@@ -1,96 +1,124 @@
 # mira-commerce-plugin-example
 
-Template de **plugin do Mira Commerce**: um programa de fidelidade mínimo,
-comentado linha a linha, para você copiar e transformar no seu plugin.
+**Template oficial de plugin do [Mira Commerce](https://mira-dev.tech).**
+Um programa de fidelidade mínimo, comentado linha a linha, que você clona,
+roda em 30 segundos e transforma no seu próprio plugin.
 
-O que ele demonstra:
+O que ele demonstra — as três superfícies que quase todo plugin real usa:
 
-| Superfície | Hook/Evento | O que faz |
-|------------|-------------|-----------|
-| Hook que **ajusta** resultado | `checkout.quote_adjust` | 5% de desconto quando subtotal ≥ R$ 300 |
-| Hook que **bloqueia** fluxo | `order.pre_confirm` | Nega pedido acima de um teto (`LOYALTY_ORDER_CAP`) |
-| Evento **assíncrono** | `order.confirmed` | Credita pontos — idempotente pela chave de negócio (`order_id`) |
+| Superfície | Hook/Evento | O que o exemplo faz |
+|------------|-------------|---------------------|
+| Hook que **ajusta** um resultado | `checkout.quote_adjust` | 5% de desconto quando o subtotal ≥ R$ 300 |
+| Hook que **bloqueia** um fluxo | `order.pre_confirm` | Nega pedido acima de um teto (código estável `LOYALTY_ORDER_CAP`) |
+| **Evento assíncrono** | `order.confirmed` | Credita pontos — idempotente pela chave de negócio (`order_id`) |
 
-> Guia completo do modelo (contrato, catálogo de hooks, prioridades, manifest,
-> persistência, checklist, anti-patterns):
-> [`docs/plugin-example.md`](https://github.com/mira-dev-tech/mira-commerce-core/blob/main/docs/plugin-example.md)
-> no mira-commerce-core.
+Exemplo concreto: um pedido de **R$ 879,90** sai do checkout por
+**R$ 835,905** (desconto de R$ 43,995 aplicado pelo plugin, antes do pedido
+ser persistido).
 
-## Estrutura
+> A documentação completa do protocolo (catálogo de 18 hooks, 14 eventos,
+> manifest, semânticas de falha) está no README do SDK:
+> [`commerce-ext`](https://github.com/mira-dev-tech/commerce-ext).
 
-```
-plugin.go                  # o plugin (package exampleloyalty) — comece por aqui
-plugin_test.go             # testes unitários (só a superfície commerce-ext)
-cmd/example-loyalty/       # empacota como binário externo (go-plugin/RPC)
-manifest.yaml              # capacidades declaradas (validado pelo core)
-vendor/                    # commerce-ext vendorado — build e CI sem credencial
-```
+---
 
-A única dependência é o SDK público
-[`commerce-ext`](https://github.com/mira-dev-tech/commerce-ext) — um plugin
-**nunca** importa `mira-commerce-core/internal/...`.
-
-## Rodar os testes
+## Comece em 30 segundos
 
 ```bash
-go test ./...
+git clone https://github.com/mira-dev-tech/mira-commerce-plugin-example
+cd mira-commerce-plugin-example
+go test ./...        # funciona direto — o SDK está vendorado, zero setup
 ```
 
-Funciona direto após o clone (o SDK está vendorado).
+## Tour pelos arquivos (nesta ordem)
 
-## Dois modos de rodar o plugin
+| Arquivo | O que você aprende lendo |
+|---------|--------------------------|
+| [`plugin.go`](plugin.go) | O plugin inteiro: `Meta/Init/Register/Shutdown`, os 2 hooks, o handler de evento, config via `Runtime` → env → default. **Cada decisão está comentada no lugar onde acontece.** |
+| [`plugin_test.go`](plugin_test.go) | Testes unitários usando só a superfície do SDK — inclusive o teste que trava a paridade entre `Register` e o `manifest.yaml` |
+| [`manifest.yaml`](manifest.yaml) | Como declarar capacidades (hooks/eventos) e compatibilidade de versão |
+| [`cmd/example-loyalty/main.go`](cmd/example-loyalty/main.go) | Como empacotar o plugin como **binário externo** (go-plugin/RPC) — são 3 linhas |
+| [`.github/workflows/ci.yml`](.github/workflows/ci.yml) | CI mínimo: vet + test + build + handshake |
 
-### 1. In-process (compilado dentro do core) — o modo padrão hoje
+## Os dois modos de rodar um plugin
 
-Copie o pacote para o monorepo e registre no loader:
+### Modo 1 — in-process (compilado dentro do core)
 
-```bash
-cp plugin.go plugin_test.go manifest.yaml \
-   mira-commerce-core/extensions/<meu-plugin>/
-# registrar em internal/ext/loader.go (Bootstrap) — ver exemplo do
-# example-loyalty, que carrega atrás de MIRA_EXAMPLE_PLUGIN=1
-```
+Para plugins mantidos junto da plataforma: o pacote é copiado para o monorepo
+do core (`extensions/<id>`) e registrado no loader. O manifest usa
+`runtime.type: in-process`. *(Requer acesso ao repositório interno do core.)*
 
-No manifest, use `runtime.type: in-process`. É assim que os plugins de
-referência (`reference-antifraud`, `reference-erp`) e o próprio
-`example-loyalty` rodam no core.
+### Modo 2 — binário externo (go-plugin/RPC)
 
-### 2. Binário externo (go-plugin/RPC) — código fora do core
+Para código que **não** deve ser compilado no core — ex.: plugin de
+cliente/parceiro. O core sobe o seu binário como processo filho e conversa por
+RPC; o binário importa **apenas** o SDK público:
 
 ```bash
 go build -o bin/example-loyalty ./cmd/example-loyalty
-./bin/example-loyalty --commerce-ext-handshake   # deve imprimir commerce-ext-ok
 
-# no core, aponte o manifest deste repo:
-MIRA_MANIFEST_PATH=/caminho/para/este/repo/manifest.yaml make dev-api
+# probe do protocolo — deve imprimir: commerce-ext-ok
+./bin/example-loyalty --commerce-ext-handshake
+
+# no deploy do core, aponte o manifest deste plugin:
+MIRA_MANIFEST_PATH=/caminho/para/manifest.yaml <processo do core>
 ```
 
-O Extension Host valida o handshake, sobe o binário e faz a ponte dos hooks
-por RPC. O binário importa **só** o commerce-ext — é o contrato para plugin de
-cliente sem fork do core.
+O host valida o handshake, registra os hooks enumerados pelo binário e faz a
+ponte de cada chamada por RPC. Se o processo do plugin morrer, os hooks
+degradam com código explícito `plugin_failure` — nunca um bloqueio silencioso.
 
-## Criando o seu plugin a partir deste template
+## Crie o seu plugin a partir deste template
 
-1. Clone/copie este repo com o nome `mira-commerce-plugin-<id>`.
-2. Renomeie `id`, `package`, env prefix e o código de bloqueio (`LOYALTY_ORDER_CAP`
-   é contrato do exemplo — o seu terá outro, e ele é estável: não renomeie sem ADR).
-3. Escolha hooks/eventos no catálogo (`hooks.go`/`events.go` do commerce-ext) e
-   **declare-os no manifest** — o teste `TestRegisterDeclaresManifestCapabilities`
-   trava a paridade.
-4. Regras que valem sempre:
-   - hooks são síncronos, 300ms de timeout, panic-safe — nada de I/O bloqueante;
-   - handler de evento é idempotente **pela chave de negócio** (entrega
-     at-least-once e o mesmo fato pode virar mais de um evento);
-   - estado persistente vai para Postgres em schema `ext_<plugin>` (ADR 0004) —
-     o contador em memória aqui é só didático;
-   - config via `Runtime.Config` → env → default; nunca hardcode nem log de secret.
-5. Atualize o `vendor/` quando subir a versão do SDK:
-   ```bash
-   export GOPRIVATE=github.com/mira-dev-tech
-   go get github.com/mira-dev-tech/commerce-ext@vX.Y.Z && go mod tidy && go mod vendor
-   ```
+1. **Fork/clone** com o nome `mira-commerce-plugin-<seu-id>`.
+2. **Renomeie a identidade**: `id` no `Meta()` e no `manifest.yaml`, o nome do
+   pacote, o prefixo de env (`EXAMPLE_LOYALTY_*` → `SEU_PLUGIN_*`).
+3. **Escolha hooks/eventos** no catálogo do SDK e **declare no manifest** — o
+   teste `TestRegisterDeclaresManifestCapabilities` falha se divergirem.
+4. **Escreva o handler mais burro possível primeiro**, com teste, e só depois
+   sofistique. O exemplo mostra o padrão para cada tipo de handler.
+5. **Rode `go test ./...` + o handshake** antes de qualquer deploy.
 
-## CI
+### As 5 regras de ouro (aprendidas em produção)
 
-`go vet` + `go test` + build do binário em cada push (sem segredos — o SDK está
-vendorado).
+1. **Hook é síncrono com timeout de 300ms** — nada de I/O bloqueante; se
+   estourar, o host degrada com `plugin_failure` (fail-closed em hooks de
+   bloqueio).
+2. **Handler de evento é idempotente pela CHAVE DE NEGÓCIO** (`order_id`),
+   nunca pelo `Event.ID` — a entrega é at-least-once e o mesmo fato pode
+   chegar em mais de um evento com IDs diferentes. Veja `onOrderConfirmed` no
+   `plugin.go`.
+3. **Código de bloqueio é contrato** — `LOYALTY_ORDER_CAP` é lido por front e
+   suporte; publicou, não renomeia.
+4. **Estado persistente vai para banco próprio do plugin** (schema
+   `ext_<plugin>` no Postgres da plataforma). O contador em memória deste
+   exemplo existe só para fins didáticos.
+5. **Config via `Runtime.Config` → env → default; secrets nunca em log nem
+   hardcode.**
+
+## Atualizando a versão do SDK
+
+O diretório `vendor/` congela o `commerce-ext` para o build funcionar sem
+setup. Para subir de versão:
+
+```bash
+go get github.com/mira-dev-tech/commerce-ext@vX.Y.Z
+go mod tidy && go mod vendor
+go test ./...
+```
+
+## Troubleshooting
+
+| Sintoma | Causa provável |
+|---------|----------------|
+| `--commerce-ext-handshake` não imprime `commerce-ext-ok` | O `main` não chama `commerceext.Serve(...)`, ou o binário é de outra arquitetura |
+| Host recusa o plugin no load | `compatibleCore` do manifest incompatível com a linha do protocolo do core, ou hook usado sem estar declarado em `capabilities` |
+| Hook "não dispara" | Confira o log do core (`ext: go-plugin RPC loaded id=...` / `ext: plugins loaded [...]`) e a prioridade — outro plugin pode ter bloqueado a cadeia antes |
+| Checkout bloqueado com `plugin_failure` | Seu handler estourou 300ms, deu panic, ou o processo externo morreu — veja o log do core (`ext/rpc: hook ... failed`) |
+| Evento processado 2×, pontos duplicados | Dedupe por `Event.ID` em vez da chave de negócio — releia a regra de ouro nº 2 |
+
+## Sobre este repositório
+
+Código de **exemplo didático**, fornecido como está. Forks são bem-vindos para
+criar seus próprios plugins; a escrita aqui é restrita à equipe Mirá para o
+template permanecer um ponto de partida estável.
