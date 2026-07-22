@@ -147,12 +147,23 @@ quatro coisas que você consegue provar sozinho.
    switch**: remover o manifest do deploy + restart; o core volta ao
    comportamento baseline na hora.
 
-### Regras de versão
+### Regras de versão e quando o core muda
 
-- Versione o plugin com semver e mantenha `compatibleCore` fiel (`^0.2.0`
-  aceita toda a linha 0.2 do protocolo).
-- Mudou código de bloqueio, hook usado ou formato de config? **Major** — e
-  combine a migração antes do deploy.
+Três versões: **pin da imagem do core** (deploy do cliente) ≠ **`CoreLine`** do
+SDK ≠ **`version` / `compatibleCore`** deste plugin.
+
+| Situação | Acção neste template / plugin |
+|----------|-------------------------------|
+| Mudança aditiva no core (hooks noutros domínios, campo opcional, refactor) | **Nada.** Pods no pin actual continuam. |
+| Campo opcional nos tipos que usas | Opcional: re-vendor do SDK + testes |
+| Breaking — major de `CoreLine` (ex. `0.2` → `1.0`) | `go get` + vendor + bump `compatibleCore` + testes; só entra em prod no upgrade de pin do cliente |
+
+- Mantenha `compatibleCore` fiel (`^0.2.0` casa com o major de `CoreLine`).
+- Mudou código de bloqueio publicado, hook usado ou formato de config?
+  **Major** do plugin — e combine a migração antes do deploy.
+- Detalhe (SSOT): README do
+  [`commerce-ext`](https://github.com/mira-dev-tech/commerce-ext#versionamento-e-compatibilidade--o-que-acontece-quando-o-core-muda)
+  · [ADR 0048](https://github.com/mira-dev-tech/mira-commerce-core/blob/main/docs/adr/0048-extension-compatibility-versioning.md).
 
 ## Atualizando a versão do SDK
 
